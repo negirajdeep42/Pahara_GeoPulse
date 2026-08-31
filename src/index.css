@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    @apply bg-ink-900 text-slate-200 font-sans antialiased;
+    overflow: hidden;
+  }
+
+  /* Numerals read as instrument values, not prose. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    @apply font-mono;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-md border border-line bg-ink-800/95 backdrop-blur-sm shadow-2xl shadow-black/60;
+  }
+
+  .panel-header {
+    @apply flex items-start justify-between gap-2 px-3 py-2 border-b border-line select-none;
+  }
+
+  .panel-title {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded border border-line bg-ink-600
+           px-3 py-2 text-xs font-semibold text-slate-200 transition
+           hover:bg-ink-500 hover:border-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500
+           disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-ink-600;
+  }
+
+  .btn-primary {
+    @apply border-sky-700 bg-sky-900/70 text-sky-100 hover:bg-sky-800 hover:border-sky-600;
+  }
+
+  .btn-danger {
+    @apply border-red-800 bg-red-950/80 text-red-100 hover:bg-red-900 hover:border-red-700;
+  }
+
+  .field {
+    @apply w-full rounded border border-line bg-ink-700 px-2.5 py-2 text-xs text-slate-100
+           placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500;
+  }
+
+  .label {
+    @apply block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted mb-1;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider;
+  }
+}
+
+/* --- range sliders ------------------------------------------------------ */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: #22303f;
+  outline: none;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  border: 2px solid #0b111a;
+  cursor: grab;
+  box-shadow: 0 0 0 1px #38bdf8;
+}
+
+input[type='range']::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  background: #38bdf8;
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  border: 2px solid #0b111a;
+  box-shadow: 0 0 0 1px #38bdf8;
+  cursor: grab;
+}
+
+/* --- scrollbars --------------------------------------------------------- */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #22303f transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: #22303f;
+  border-radius: 999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --- maplibre overrides ------------------------------------------------- */
+.maplibregl-ctrl-attrib,
+.maplibregl-ctrl-attrib a {
+  background: rgba(7, 11, 16, 0.82) !important;
+  color: #6b7f93 !important;
+  font-size: 10px !important;
+}
+
+.maplibregl-popup-content {
+  background: #0b111a !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #22303f !important;
+  border-radius: 6px !important;
+  padding: 0 !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6) !important;
+}
+
+.maplibregl-popup-tip {
+  border-top-color: #0b111a !important;
+  border-bottom-color: #0b111a !important;
+}
+
+.maplibregl-popup-close-button {
+  color: #8296ab !important;
+  font-size: 16px !important;
+  padding: 2px 7px !important;
+}
+
+.maplibregl-ctrl-group {
+  background: #0b111a !important;
+  border: 1px solid #22303f !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid #22303f !important;
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(0.85);
+}

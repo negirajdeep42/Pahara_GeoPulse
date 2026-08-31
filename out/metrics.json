@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-08-31T10:25:37.809867+00:00",
+  "method": "XGBClassifier (xgboost 3.4.1) on slope-decile-matched negatives; validated with GroupKFold over 0.5 deg spatial blocks",
+  "dem_source": "OpenTopoData SRTM 30 m",
+  "auc_spatial_cv": 0.6244,
+  "auc_random_cv": 0.6298,
+  "auc_logreg_baseline": 0.5893,
+  "auc_note": "auc_spatial_cv is the honest figure. auc_random_cv is inflated by spatial autocorrelation between neighbouring cells and is reported only to show the size of that inflation.",
+  "auc_spatial_cv_std": 0.0315,
+  "auc_random_cv_std": 0.0204,
+  "auc_logreg_baseline_std": 0.0595,
+  "cell_count": 5922,
+  "cell_size_deg": 0.05,
+  "training_samples": 1886,
+  "positive_samples": 943,
+  "negative_samples": 943,
+  "landslide_records": 9788,
+  "landslide_records_matched_to_cell": 9152,
+  "landslide_date_range": "1995-05-22 .. 2026-07-13 (1374 of 9788 records carry a day-precision date; 9533 carry a year)",
+  "feature_importance": {
+    "elevation_m": 0.1957,
+    "roughness_m": 0.1018,
+    "aspect_sin": 0.1018,
+    "relief_m": 0.1018,
+    "tpi_m": 0.1016,
+    "slope_mean_deg": 0.1009,
+    "slope_deg": 0.0998,
+    "curvature": 0.099,
+    "aspect_cos": 0.0974
+  },
+  "features": [
+    "elevation_m",
+    "slope_deg",
+    "slope_mean_deg",
+    "relief_m",
+    "tpi_m",
+    "roughness_m",
+    "curvature",
+    "aspect_sin",
+    "aspect_cos"
+  ],
+  "class_distribution": {
+    "Very Low": 1185,
+    "Low": 1184,
+    "Moderate": 1184,
+    "High": 1184,
+    "Very High": 1185
+  },
+  "pct_landslides_in_high_and_very_high": 82.6,
+  "pct_area_in_high_and_very_high": 40.2,
+  "capture_ratio": 2.06,
+  "restricted_to_inventory_states": true,
+  "positive_radius_km": 2.0,
+  "min_slope_deg": 3.0,
+  "spatial_block_deg": 0.5,
+  "bbox": {
+    "lat_min": 21.5,
+    "lat_max": 29.6,
+    "lon_min": 87.8,
+    "lon_max": 97.5
+  },
+  "data_sources": [
+    "NE_landslides_raw_extracted.csv - GSI landslide inventory (labels)",
+    "OpenTopoData SRTM 30 m - elevation sampled at 0.025 deg; slope, aspect, relief, TPI, roughness and curvature derived from it",
+    "OpenStreetMap via Overpass - state and district boundaries, settlements and population tags",
+    "NE_India_Terrain_Features.csv - point terrain at inventory locations (cross-check only; it is the inventory itself, not a grid)"
+  ],
+  "caveats": [
+    "NE_India_Terrain_Features.csv is the landslide inventory with terrain columns appended, not a prediction grid: all 9788 rows are label=1. The prediction surface here was therefore built from a DEM fetched for the study area.",
+    "Susceptibility is static terrain-based likelihood. It is not a forecast and carries no timing.",
+    "Slope is scale-dependent. Grid slope here is derived on a ~2.8 km baseline (0.025 deg DEM sampling) and so reads lower than the slope_degrees column in NE_India_Terrain_Features.csv, which came from a fine DEM at point locations. The two are not directly comparable; the min_slope_deg threshold and the slope deciles both refer to the grid-scale value.",
+    "Inventory coverage is uneven between states, so absolute probabilities are better read as a ranking than as true frequencies.",
+    "The modelled surface is clipped to the eight states the GSI inventory covers. The requested bbox also spans Bhutan, Bangladesh, Myanmar, China and parts of West Bengal/Bihar/Jharkhand; those cells were excluded because no survey covers them, so their absence of records is not evidence of stability."
+  ]
+}
