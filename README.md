@@ -26,6 +26,14 @@ from Open-Meteo or set by an operator running a what-if scenario. Rainfall comes
 from a coarse 0.5° lattice — 121 nodes for the current grid, two batched calls —
 and each cell reads the node containing it.
 
+**Trigger is also ahead of itself.** A live fetch returns four windows per node,
+not one: the 24 h and 168 h totals ending **now**, and the same totals as they
+will stand at **+24 h**, **+48 h** and **+72 h**. The operator picks the lead
+time and the whole dashboard moves to it — the map, the priority list, the
+alerts, the inspector. This is the difference between a monitor and a warning
+system. A hillside that will be at Evacuate on Thursday is worth knowing about
+on Tuesday; by the time the observed window says so, the slope already knows.
+
 A hillside that cannot fail does not fail however hard it rains. Rain that never
 comes cannot bring down even the worst slope. Only the product is risk. The
 dashboard shows both halves separately and their product on the map, and the
@@ -43,8 +51,10 @@ npm run dev          # http://localhost:5173
 ```bash
 npm run build        # production bundle into dist/
 npm run preview      # serve the built bundle locally
-npm test             # all four suites below, 12,199 assertions
+npm test             # all six suites below, 26,700 assertions
 npm run test:engine  # the risk engine
+npm run test:rain    # rainfall windowing, forecast leads, node lattice
+npm run test:advice  # plain-language mapping, checked against the real grid
 npm run test:factors # inspector factors, against both real grid files
 npm run test:search  # fuzzy matching, geo maths, place resolution
 npm run test:render  # components rendered in node, all three locales
@@ -154,19 +164,69 @@ and why that choice decided the sign of the model.
 
 ---
 
+## Two views, one model
+
+PAHARA opens in **simple** view and can be switched to **detailed** from the
+header. Both read the same grid, the same rainfall field and the same risk
+engine. Nobody is shown a different answer; they are shown the same answer in
+a different number of words.
+
+**Simple** is one question, one place, one answer. Search a village, get a
+verdict in plain language — *Safe today*, *Stay alert*, *Danger — be ready to
+move*, *Move to safety now* — the one sentence that explains it, and three
+things to do about it. No jargon on the card: "trigger", "susceptibility" and
+the multiplication live behind a **Show the numbers** disclosure, and the whole
+operator dashboard is one tap away. It is the default because the two mistakes
+are not symmetric: an operator shown the simple view loses ten seconds finding
+the toggle, while a resident shown the operator dashboard closes the tab.
+
+The plain wording is not decoration. `src/lib/advice.js` picks one of four
+sentences from the two halves of the model — *steep and raining hard*, *steep
+but dry*, *gentle and raining hard*, *gentle and dry* — which is
+`risk = susceptibility × trigger` stated without a technical word. A reader who
+understands why a steep dry slope is not an emergency has understood the model.
+`npm run test:advice` checks that claim against all 5,922 real cells: a
+sentence saying "slide-prone" is only ever shown for a cell the model calls
+slide-prone.
+
+The verdict is carried by **colour, shape and words at once** — a tick, an eye,
+a triangle, a siren — so no single channel has to survive alone. Red-amber-green
+fails for roughly one man in twelve, and this is the screen someone reads while
+deciding whether to leave their house.
+
+`unmonitored` gets the same visual weight as a verdict rather than a grey
+footnote. 1,350 of 5,196 settlements have no modelled slope in range, and a
+resident who reads "no data" as "safe" has been actively misled.
+
+**Detailed** is the operator dashboard, unchanged — every panel below.
+
+### On a phone
+
+Both views are built for one. The dashboard's four floating corners become a
+single scrolling sheet over the bottom two-thirds with the map above, and the
+340 px inspector drawer becomes a full-width sheet. The layout is chosen in
+JavaScript rather than CSS (`src/hooks/useMediaQuery.js`) because no container
+can be four corners and one column at once, and rendering the panels twice
+would mount two copies of every fetch button.
+
+A three-card welcome explains the model on first open, and never again unless
+someone asks for it from the help icon.
+
 ## What is on screen
 
 | Panel | Position | What it does |
 | --- | --- | --- |
 | **Location search** | top left, and the header on phones | Fuzzy search over 5,196 settlements. Type a village or town, get its live risk, static susceptibility, terrain and rainfall breakdown, and the nearest higher-risk zone within 10 km. Handles romanisation variants; falls back to a geocoder for anything not in the file. |
 | **Map** | full screen | MapLibre GL + OpenFreeMap Liberty basemap, dimmed so hazard colour is the brightest thing on screen. Two colour modes: static susceptibility (5 classes) and live risk (4 classes). Hover highlights, click selects. |
-| **Rainfall & trigger** | top left | Two sliders (24 h, 0–250 mm · 7 d, 0–500 mm), a live-fetch button, a LIVE/SIMULATED badge, and the trigger broken into its weighted components. |
+| **Rainfall & trigger** | top left | A forecast lead-time selector (Now / +24 h / +48 h / +72 h), two sliders (24 h, 0–250 mm · 7 d, 0–500 mm), a live-fetch button, a LIVE/SIMULATED badge, and the trigger broken into its weighted components. The lead selector is inert against a slider scenario — a what-if has no clock to be ahead of. |
 | **Priority zones** | left, below | The ten highest-risk cells right now. Clicking one flies the map there and opens the inspector. |
 | **Cell inspector** | right drawer | The rating, the multiplication that produced it, and every contributing factor as a bar with its real measured value. |
 | **Alerts** | top right | Live count of zones at Warning or Evacuate, one dispatch button, and a session log of what was sent. |
 | **Simulated sensor node** | bottom left | Three drifting gauges — soil moisture, tilt, battery — that scale with the rainfall inputs. Border pulses red above 80 % moisture. |
 | **Report a hazard** | bottom centre | Citizen report: photo, GPS or manual coordinates, type, description. Drops a violet marker on the map. |
 | **Methodology** | header | Grid provenance from the file's own metadata, the formula, and the sensor disclosure. |
+| **View switch** | header | Simple ↔ detailed. Remembered per device. |
+| **Help** | header | Reopens the welcome cards, for whoever dismissed them too fast. |
 
 Language switches between **English / हिन्दी / অসমীয়া** from the header; the
 choice is remembered. The connectivity chip turns amber when the browser goes
@@ -209,6 +269,8 @@ src/
     MethodologyModal.jsx   provenance and disclosure
     PlaceSearch.jsx        fuzzy settlement search + dropdown
     PlaceResultCard.jsx    the searched location's assessment
+    SimpleView.jsx         the plain-language view: one place, one answer
+    WelcomeModal.jsx       three cards on first open
     Panel.jsx  Toasts.jsx  shared shells
   lib/
     riskEngine.js          computeTrigger, computeRisk, riskClass, ranking
@@ -220,12 +282,17 @@ src/
     placeSearch.js         Fuse config, place resolution, geocoder fallback
     placeSearch.test.mjs   assertions (npm run test:search)
     render.test.jsx        component render checks (npm run test:render)
+    advice.js              risk class -> plain words, glyph and actions
+    advice.test.mjs        assertions (npm run test:advice)
+    uiMode.js              simple/detailed preference, first-run flag
     spatialRisk.js         applies the rainfall field to the grid, per cell
-    openMeteo.js           single-point rainfall + the 0.5 deg lattice fetch
+    openMeteo.js           rainfall: the 0.5 deg lattice, forecast lead windows
+    openMeteo.test.mjs     assertions (npm run test:rain)
     telegram.js            message builder + dispatch
   hooks/
     useRiskGrid.js         loads and normalises the grid
     usePlaces.js           loads places.json once
+    useMediaQuery.js       the one breakpoint the dashboard layout turns on
   i18n/                    i18next setup, en / hi / as
 public/
   places.json                  5,196 settlements, for the search
@@ -236,7 +303,7 @@ scripts/                   offline pipeline (see "Regenerating the grid")
 out/                       pipeline output: grid, places.json, metrics.json
 ```
 
-### Two implementation notes worth knowing
+### Three implementation notes worth knowing
 
 **There are two recolouring paths, and the fast one is still the default.**
 Operator what-if scenarios are one scalar for the whole region, so the live-risk
@@ -250,6 +317,24 @@ risk is written into `feature-state` once per fetch, and the expression reads
 only ever walked on a fetch, never on a drag. This is why the source uses
 `promoteId: 'cell_id'` rather than `generateId` — the risk for a cell has to be
 addressable by name from outside `MapView`.
+
+**Four lead times cost one fetch, and are projected in one place.**
+`fetchRainfallGrid` returns `node -> { rain24h, rain7d, leads }`, where `leads`
+carries all four windows. Everything downstream of `fieldAtLead` — `scoreCells`,
+the place search, the inspector, the alert builder — only ever sees the plain
+`{ rain24h, rain7d }` shape it always saw, so changing lead time is a `useMemo`
+over 121 nodes rather than a refetch of anything. The lead-0 figures are also
+lifted to the top level of each node, so a payload from before leads existed
+still renders as “now” instead of as zero rainfall.
+
+The window anchor is found by binary-searching `hourly.time` for the current
+hour rather than counting back from the end of the array, because the end of
+the array is a property of `forecast_days` and the anchor is a property of the
+clock. `past_days=7&forecast_days=4` is the tightest request that covers +72 h:
+the current hour lands at index 168–191, and 191 + 72 = 263, the last index of
+an 11-day hourly series. A shorter forecast window sets `truncated` on the
+leads it cannot reach, and the panel says so rather than showing a short sum as
+if it were a full one.
 
 **The basemap veil is a fill, not a background layer.** MapLibre always paints
 `background` layers in the background pass regardless of their position in the
