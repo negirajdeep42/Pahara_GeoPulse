@@ -1,5 +1,167 @@
 # Changelog
 
+## Two views — 3 Sep 2026
+
+The dashboard was built for one reader: someone who already knows what a
+trigger is. Every other reader met nine floating panels, `tpi_m`,
+`0.65 × intensity + 0.35 × antecedent`, and 23 uses of 9-pixel type.
+
+PAHARA now opens in **simple** view and switches to **detailed** from the
+header. Same grid, same rainfall field, same risk engine, same answer — a
+different number of words around it.
+
+**Simple is one question, one place, one answer.** A verdict in plain language
+(*Safe today* / *Stay alert* / *Danger — be ready to move* / *Move to safety
+now*), the one sentence that explains it, and three things to do. Every number
+is still there behind a **Show the numbers** disclosure, and the whole operator
+dashboard is one tap away. It is the default because the two mistakes are not
+symmetric: an operator shown the simple view loses ten seconds finding the
+toggle; a resident shown the operator dashboard closes the tab.
+
+**The words are derived, not decorative.** `src/lib/advice.js` picks one of
+four sentences from the two halves of the model:
+
+| slope | rain | sentence |
+| --- | --- | --- |
+| steep | hard | "This is a steep, slide-prone hillside, and it has been raining hard." |
+| steep | little | "The hillside here can slide, but little rain has fallen. Rain is what starts a slide." |
+| gentle | hard | "It has been raining hard, but the ground here is not steep enough to slide easily." |
+| gentle | little | "The ground here is not steep, and little rain has fallen." |
+
+That is `risk = susceptibility × trigger` with no technical word in it. A reader
+who understands why the second row is not an emergency has understood the
+model, which is what the methodology modal takes four paragraphs to say.
+
+`suscept_class` decides "steep" when the grid carries it, because those bins
+are quantiles of the real distribution; the 0.5 constant is only the fallback
+for a grid exported without the label, and the previous district file is one
+such.
+
+**Colour is never alone.** Each level carries a glyph as well as a hue and a
+sentence — tick, eye, triangle, siren. Red-amber-green fails for roughly one
+man in twelve, and this is the screen someone reads while deciding whether to
+leave their house.
+
+**`unmonitored` gets a verdict's visual weight**, not a grey footnote. 1,350 of
+5,196 settlements have no modelled slope within range. A resident who reads
+"no data" as "safe" has been actively misled, so the simple view says the model
+has nothing to say here, in as many words, at the same size as an answer.
+
+**Advice is labelled as advice.** Every action list carries "General guidance,
+not an official evacuation order. Always follow your district administration
+and the NDMA." The wording is plausible and it is not official, and the card
+says so rather than letting a reader assume otherwise.
+
+**The phone layout works now.** Before this the whole app had six responsive
+CSS classes, all in the header, and every panel was a fixed pixel width
+absolutely positioned over the map: on a 375 px screen the left column and the
+alerts panel overlapped completely, the sensor panel and legend overlapped
+both, and the inspector drawer covered 91% of the display. The dashboard's four
+floating corners are now one scrolling sheet over the bottom two-thirds with
+the map above, and every fixed width became `w-full sm:w-[…]`.
+
+That layout is chosen in JavaScript, not CSS — `hooks/useMediaQuery.js`. No
+container can be four corners and one column at once, and rendering the panels
+twice would mount two copies of every piece of local state: two fetch buttons,
+two dispatch buttons, two of everything that can be mid-request. So the panels
+are built once into a `panels` object and placed by whichever layout is active.
+Crossing 768px re-parents them, which React handles as a remount — a real cost,
+paid only by someone dragging a window across the breakpoint.
+
+**A tap on the map answers too.** The simple sheet says "tap the map to check
+anywhere else", so it has to. A tap is routed through the same `resolvePlace`
+a search uses rather than assembling a result by hand, so the
+nearest-higher-risk note and the three verdicts behave identically however the
+place was chosen.
+
+**Three welcome cards on first open**, and never again unless someone asks from
+the help icon. The middle card is the one that earns its place: without it, a
+first-time reader cannot tell why a Very High slope is coloured green.
+
+**Operator controls are hidden in simple mode, not disabled.** A greyed-out
+control someone cannot use is still clutter they have to read past.
+
+**Coverage.** A new suite, `npm run test:advice`, 14,356 assertions. Beyond the
+mapping being total — every level has a headline, a summary and exactly three
+actions, in all three locales, all distinct — it cross-checks the words against
+all 5,922 real cells: a sentence claiming "slide-prone" is only ever rendered
+for a cell the model calls slide-prone, and a dry region produces only dry
+sentences. The render suite grew 74 → 136, covering every verdict, every level,
+both header modes and the welcome cards in all three locales, and asserting
+that the word "susceptibility" never reaches the closed card. Six suites,
+26,700 counted assertions.
+
+**Still open.** The Hindi and Assamese strings for all of this were written for
+the dashboard and want a native speaker before any real deployment — the
+action lists especially, because they are the sentences someone might act on.
+The advice text itself is plausible rather than official; matching NDMA or
+state SDMA phrasing would be better than labelling it indicative.
+
+---
+
+## Forecast lead time — 3 Sep 2026
+
+PAHARA is named for early warning and, until now, only reported the present.
+The rainfall fetch asked for `past_days=7&forecast_days=1` and summed the last
+24 and last 168 values of the series, so the dashboard answered *is it dangerous
+right now?* — the one question where the hillside already knows the answer.
+
+**The request now asks for `forecast_days=4`, and every node is summarised four
+times.** The current hour is located inside the series, and the 24 h and 168 h
+windows are summed backwards from it and from three points ahead of it:
+
+| lead | what it is |
+| --- | --- |
+| Now | observed rainfall to the current hour |
+| +24 h | the totals as they will stand tomorrow, part forecast |
+| +48 h | … |
+| +72 h | … |
+
+The operator picks one and the whole dashboard follows: the map fill, the
+priority list, the alert counts and the cell inspector all read the selected
+lead. A slider scenario has no clock, so the selector is disabled in what-if
+mode and returns to Now when a slider moves.
+
+**One fetch, not four.** `fetchRainfallGrid` returns
+`node -> { rain24h, rain7d, leads }` and `fieldAtLead` projects that onto one
+lead, in the plain `{ rain24h, rain7d }` shape every consumer already
+understood. Nothing downstream knows a lead time exists. Switching lead is a
+`useMemo` over 121 nodes; it costs no network call and no source reload.
+
+**Why `forecast_days=4` and not 3.** The anchor is found by binary-searching
+`hourly.time` for the current hour, not by counting back from the end of the
+array — the end of the array is a property of the request, the anchor is a
+property of the clock. With `past_days=7` the current hour lands at index
+168–191, and 191 + 72 = 263, exactly the last index of an 11-day hourly series.
+Three forecast days would truncate +72 h for any fetch after midnight. When a
+lead does fall off the end — an older or shortened response — the window clamps
+to the furthest hour returned and sets `truncated`, and the panel says the
+forecast did not reach that far rather than presenting a short sum as a full
+one. Verified live: 264 hours returned, all four leads resolved, none truncated.
+
+**A parsing bug the tests caught.** The first version appended `:00Z` to
+Open-Meteo's zoneless timestamps and trusted `Date.parse`. V8 falls back to a
+legacy parser that accepts almost anything — `Date.parse('nonsense:00Z')` is
+1 Jan 2000, not `NaN` — so an unrecognised stamp would have silently anchored
+every window to the wrong hour instead of falling back to the observed week.
+`parseHour` now checks the shape before parsing, and the panel's caption
+formatter shares it rather than keeping a looser copy.
+
+**Coverage.** A new suite, `npm run test:rain`, 56 assertions: window sums
+against a ramp series where the expected value is an arithmetic series written
+down independently of the implementation, anchor location and its fallbacks,
+truncation against a `forecast_days=1`-shaped payload, series shorter than one
+window, nulls in the series, and field projection. The render suite grew from
+47 to 74, covering the selector live and disabled at every lead, in all three
+locales, plus an unparseable timestamp.
+
+**Still open.** The trigger itself is unchanged: a linear blend of a 24 h and a
+flat 7 d sum. Forecast lead makes the dashboard ask about the right moment; it
+does not make the arithmetic at that moment any better. Antecedent decay and a
+fitted intensity-duration threshold are the next thing.
+
+---
+
 ## Location search — 31 Aug 2026
 
 A fuzzy settlement search over `places.json`, so someone can type a place name

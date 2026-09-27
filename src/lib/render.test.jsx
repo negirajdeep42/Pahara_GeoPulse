@@ -19,6 +19,11 @@ import as from '../i18n/locales/as.json'
 import PlaceSearch from '../components/PlaceSearch.jsx'
 import PlaceResultCard from '../components/PlaceResultCard.jsx'
 import CellInspector from '../components/CellInspector.jsx'
+import RainfallPanel from '../components/RainfallPanel.jsx'
+import SimpleView from '../components/SimpleView.jsx'
+import WelcomeModal from '../components/WelcomeModal.jsx'
+import Header from '../components/Header.jsx'
+import { adviceFor } from './advice.js'
 import { resolvePlace } from './placeSearch.js'
 import { scoreCells } from './spatialRisk.js'
 
@@ -26,6 +31,10 @@ let checks = 0
 const missingKeys = new Set()
 const ok = (cond, msg) => {
   assert.ok(cond, msg)
+  checks += 1
+}
+const eq = (a, b, msg) => {
+  assert.equal(a, b, msg)
   checks += 1
 }
 
@@ -149,9 +158,156 @@ for (const [label, path] of [
   }
 }
 
+// ------------------------------------------------------------ simple view
+// The view a resident actually reads. Every verdict must render, and the
+// answer must carry the plain words rather than the raw class name - a card
+// that says "Evacuate 0.78" is the operator dashboard wearing a bigger font.
+const simple = (props) => (
+  <SimpleView
+    places={places}
+    placesReady
+    activeField={null}
+    rain={{ rain24h: 60, rain7d: 200, source: 'sim' }}
+    onSelectPlace={() => {}}
+    onReport={() => {}}
+    onDetails={() => {}}
+    {...props}
+  />
+)
+
+{
+  const empty = render(simple({ result: null }), 'SimpleView/empty')
+  ok(empty.includes(en.plain.emptyTitle), 'SimpleView: the empty state invites a search')
+  ok(empty.includes(en.plain.reportCta), 'SimpleView: reporting is reachable before any search')
+  ok(empty.includes(en.plain.detailsCta), 'SimpleView: the full dashboard is one tap away')
+
+  // a place with a real answer
+  const answer = render(simple({ result: byVerdict.ok }), 'SimpleView/ok')
+  const advice = adviceFor(byVerdict.ok.cell)
+  const headline = advice.headlineKey.split('.').reduce((o, k) => o[k], en)
+  ok(answer.includes(headline), 'SimpleView: the verdict is the plain headline')
+  ok(answer.includes(en.plain.whyTitle), 'SimpleView: it says why')
+  ok(answer.includes(en.plain.doTitle), 'SimpleView: it says what to do')
+  ok(answer.includes(en.plain.adviceNote), 'SimpleView: the advice is labelled as unofficial')
+  ok(answer.includes(en.plain.showNumbers), 'SimpleView: the numbers are reachable')
+  ok(!answer.includes('susceptibility'), 'SimpleView: no jargon on the closed card')
+
+  // every level renders, and each one shows its own words
+  for (const level of ['Safe', 'Watch', 'Warning', 'Evacuate']) {
+    const cell = { ...byVerdict.ok.cell, riskClass: level, risk: 0.5 }
+    const html = render(simple({ result: { ...byVerdict.ok, cell } }), `SimpleView/${level}`)
+    ok(html.includes(en.plain.level[level].headline), `SimpleView: ${level} headline`)
+    for (let i = 1; i <= 3; i += 1) {
+      ok(html.includes(en.plain.level[level][`do${i}`]), `SimpleView: ${level} action ${i}`)
+    }
+  }
+
+  // the two honest non-answers
+  const nodata = render(simple({ result: byVerdict.unmonitored }), 'SimpleView/unmonitored')
+  ok(nodata.includes(en.plain.nodataTitle), 'SimpleView: unmonitored says so plainly')
+  ok(
+    !nodata.includes(en.plain.level.Safe.headline),
+    'SimpleView: no data is never shown as "Safe today"',
+  )
+  if (byVerdict.outside) {
+    const outside = render(simple({ result: byVerdict.outside }), 'SimpleView/outside')
+    ok(outside.includes(en.plain.outsideTitle), 'SimpleView: outside the region says so')
+  }
+
+  // places still loading must not crash the sheet
+  render(simple({ result: null, placesReady: false }), 'SimpleView/loading')
+}
+
+// ------------------------------------------------------------------ welcome
+{
+  const html = render(<WelcomeModal open onClose={() => {}} />, 'WelcomeModal/open')
+  ok(html.includes(en.welcome.s2Title), 'WelcomeModal: the two-halves card is present')
+  ok(html.includes('role="dialog"'), 'WelcomeModal: announced as a dialog')
+  eq(render(<WelcomeModal open={false} onClose={() => {}} />, 'WelcomeModal/closed'), '',
+    'WelcomeModal: closed renders nothing')
+}
+
+// ------------------------------------------------------------------- header
+{
+  const head = (mode) =>
+    render(
+      <Header
+        colorMode="risk"
+        onColorMode={() => {}}
+        online
+        onMethodology={() => {}}
+        mode={mode}
+        onMode={() => {}}
+        onHelp={() => {}}
+      />,
+      `Header/${mode}`,
+    )
+
+  const simpleHead = head('simple')
+  const detailHead = head('detailed')
+  for (const html of [simpleHead, detailHead]) {
+    ok(html.includes(en.header.viewSimple), 'Header: the view switch is always present')
+    ok(html.includes(en.header.viewDetailed))
+  }
+  ok(
+    !simpleHead.includes(en.header.methodology),
+    'Header: operator-only controls are hidden in simple mode, not disabled',
+  )
+  ok(detailHead.includes(en.header.methodology), 'Header: methodology returns in detailed mode')
+}
+
+// -------------------------------------------------- rainfall panel + leads
+// The lead selector drives the whole dashboard, so its two states have to
+// render: live, where the operator can look ahead, and a slider scenario,
+// where there is nothing to look ahead of and the buttons are disabled.
+const panel = (props) => (
+  <RainfallPanel
+    rain24h={60}
+    rain7d={200}
+    onChange={() => {}}
+    onFetchLive={async () => {}}
+    onLead={() => {}}
+    nodeCount={121}
+    {...props}
+  />
+)
+
+for (const lead of [0, 24, 48, 72]) {
+  const html = render(panel({ source: 'live', lead, leadWindow: '2026-09-11T14:00' }), `RainfallPanel/live/+${lead}`)
+  ok(html.includes('aria-checked="true"'), `RainfallPanel: lead +${lead} marks one button selected`)
+  ok(
+    (html.match(/aria-checked="true"/g) || []).length === 1,
+    `RainfallPanel: lead +${lead} selects exactly one`,
+  )
+  // the Tailwind classes mention `disabled:`, so count the real attribute
+  ok(
+    (html.match(/disabled=""/g) || []).length === 0,
+    `RainfallPanel: lead +${lead} is choosable when live`,
+  )
+}
+
+const simHtml = render(panel({ source: 'sim', lead: 0 }), 'RainfallPanel/sim')
+ok(
+  (simHtml.match(/disabled=""/g) || []).length === 4,
+  'RainfallPanel: every lead is disabled in a slider scenario',
+)
+
+// a stamp the API could not have sent must not crash the caption
+render(panel({ source: 'live', lead: 24, leadWindow: 'nonsense' }), 'RainfallPanel/badStamp')
+ok(
+  render(panel({ source: 'live', lead: 72, leadWindow: '2026-09-11T14:00', leadTruncated: true }), 'RainfallPanel/truncated').length > 0,
+  'RainfallPanel: a truncated lead renders its warning',
+)
+
 // ------------------------------------------------------ every locale renders
 for (const lng of ['en', 'hi', 'as']) {
   i18n.changeLanguage(lng)
+  render(panel({ source: 'live', lead: 48, leadWindow: '2026-09-11T14:00' }), `RainfallPanel/${lng}`)
+  render(simple({ result: byVerdict.ok }), `SimpleView/${lng}`)
+  render(simple({ result: byVerdict.unmonitored }), `SimpleView/nodata/${lng}`)
+  render(simple({ result: null }), `SimpleView/empty/${lng}`)
+  render(<WelcomeModal open onClose={() => {}} />, `WelcomeModal/${lng}`)
+  render(panel({ source: 'sim', lead: 0 }), `RainfallPanel/sim/${lng}`)
   render(<PlaceSearch places={places} rainField={null} uniformRain={{}} onSelect={() => {}} />, `PlaceSearch/${lng}`)
   render(<PlaceResultCard result={byVerdict.ok} features={meta.features} importance={meta.feature_importance} onClose={() => {}} />, `PlaceResultCard/${lng}`)
   render(<PlaceResultCard result={byVerdict.outside} onClose={() => {}} />, `PlaceResultCard/outside/${lng}`)

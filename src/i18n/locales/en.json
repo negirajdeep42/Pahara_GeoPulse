@@ -18,7 +18,13 @@
     "modeSusceptibility": "Susceptibility",
     "modeRisk": "Live risk",
     "methodology": "Methodology",
-    "language": "Language"
+    "language": "Language",
+    "viewLabel": "View",
+    "viewSimple": "Simple",
+    "viewDetailed": "Detailed",
+    "viewSimpleTitle": "Plain language, one place at a time",
+    "viewDetailedTitle": "The full operator dashboard",
+    "help": "Help"
   },
   "legend": {
     "susceptibility": "Susceptibility (static)",
@@ -54,7 +60,14 @@
     "intensity": "Intensity",
     "antecedent": "Antecedent",
     "weights": "0.65 × intensity + 0.35 × antecedent",
-    "nodes": "{{count}} rainfall nodes on a 0.5° lattice"
+    "nodes": "{{count}} rainfall nodes on a 0.5° lattice",
+    "lead": "Forecast lead time",
+    "leadNow": "Now",
+    "leadWindow": "window ends {{time}}",
+    "leadObserved": "Observed rainfall to the current hour.",
+    "leadForecast": "Rainfall totals as they will stand {{hours}} h from now, part forecast.",
+    "leadNeedsLive": "Fetch live rainfall to look ahead. A slider scenario has no clock.",
+    "leadTruncated": "The forecast did not reach this far ahead; showing the furthest hour returned."
   },
   "inspector": {
     "title": "Cell inspector",
@@ -207,5 +220,83 @@
     "fromGeocoder": "From map search",
     "unknownArea": "Area unknown",
     "populationUnknown": "not recorded"
+  },
+  "plain": {
+    "title": "Is a landslide likely near me?",
+    "searchLabel": "Find your village or town",
+    "searchHint": "Type a place name in the Northeast",
+    "emptyTitle": "Search your village",
+    "emptyBody": "PAHARA tells you whether a landslide is likely near a place today, using the shape of the land and the rain that has fallen on it.",
+    "emptyTry": "Try one of these",
+    "whyTitle": "Why",
+    "doTitle": "What to do",
+    "adviceNote": "General guidance, not an official evacuation order. Always follow your district administration and the NDMA.",
+    "higherNear": "Higher risk {{km}} km {{dir}} of here. Your house may be fine while your road out is not.",
+    "distantCell": "The nearest modelled hillside is {{km}} km away, so this is the closest reading, not a reading of this exact spot.",
+    "nodataTitle": "No slope data for this place",
+    "nodataBody": "PAHARA has no modelled hillside near {{name}}. That is not the same as safe — the model simply has nothing to say here. Many valley-floor towns are in this position.",
+    "outsideTitle": "Outside the covered area",
+    "outsideBody": "PAHARA currently covers the eight Northeastern states of India.",
+    "rainTitle": "Rain here",
+    "rainToday": "Last 24 hours",
+    "rainWeek": "Last 7 days",
+    "showNumbers": "Show the numbers",
+    "hideNumbers": "Hide the numbers",
+    "numbersNote": "Risk is how steep and slide-prone the land is, multiplied by how wet it is. Either one alone is not a danger.",
+    "numbersSlope": "Slope danger",
+    "numbersRain": "Rain now",
+    "numbersRisk": "Risk today",
+    "reportCta": "Report a landslide",
+    "detailsCta": "Open the full dashboard",
+    "mapHint": "Tap the map to check anywhere else.",
+    "level": {
+      "Safe": {
+        "headline": "Safe today",
+        "summary": "No landslide is expected near this place right now.",
+        "do1": "No action needed today.",
+        "do2": "Check again if heavy rain starts.",
+        "do3": "Know which way you would leave, just in case."
+      },
+      "Watch": {
+        "headline": "Stay alert",
+        "summary": "Conditions here could turn. Worth keeping an eye on.",
+        "do1": "Watch the rain over the next day.",
+        "do2": "Keep your phone charged and this page saved.",
+        "do3": "Agree with your family where you would go."
+      },
+      "Warning": {
+        "headline": "Danger — be ready to move",
+        "summary": "A landslide is possible near this place. Prepare to leave.",
+        "do1": "Pack papers, medicines and a torch now.",
+        "do2": "Stay off steep slopes and roads cut into hillsides.",
+        "do3": "Tell your neighbours, especially anyone who cannot walk far."
+      },
+      "Evacuate": {
+        "headline": "Move to safety now",
+        "summary": "A landslide is likely near this place. Do not wait.",
+        "do1": "Leave for flat, open ground away from slopes.",
+        "do2": "Do not use roads cut into hillsides.",
+        "do3": "Call your village head or the district control room."
+      }
+    },
+    "reason": {
+      "steepWet": "This is a steep, slide-prone hillside, and it has been raining hard.",
+      "steepDry": "The hillside here can slide, but little rain has fallen. Rain is what starts a slide.",
+      "gentleWet": "It has been raining hard, but the ground here is not steep enough to slide easily.",
+      "gentleDry": "The ground here is not steep, and little rain has fallen."
+    }
+  },
+  "welcome": {
+    "title": "Welcome to PAHARA",
+    "subtitle": "Landslide warning for Northeast India",
+    "s1Title": "Search your village",
+    "s1Body": "Type a place name and see whether a landslide is likely near it today.",
+    "s2Title": "Two things make a landslide",
+    "s2Body": "A slope that can fail, and rain heavy enough to start it. One without the other is not a danger — PAHARA checks both.",
+    "s3Title": "Colours mean action",
+    "s3Body": "Green is safe, yellow means stay alert, orange means get ready, red means move now.",
+    "start": "Start",
+    "skip": "Skip",
+    "reopen": "You can see this again from the help icon."
   }
 }

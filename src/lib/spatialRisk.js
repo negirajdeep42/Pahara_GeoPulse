@@ -73,7 +73,14 @@ export function meanTrigger(scored) {
   return sum / scored.length
 }
 
-/** The wettest node on the map right now, for the regional readout. */
+/**
+ * The wettest node on the map right now, for the regional readout.
+ *
+ * The rainfall panel reads `peakField` in openMeteo.js instead, because it
+ * needs the peak at a chosen forecast lead and scored cells only ever carry
+ * one lead at a time. This stays as the equivalent for anything holding cells
+ * rather than the raw field.
+ */
 export function peakRain(scored) {
   let rain24h = 0
   let rain7d = 0

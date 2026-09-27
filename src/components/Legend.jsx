@@ -22,7 +22,7 @@ export default function Legend({ colorMode, trigger }) {
       }))
 
   return (
-    <div className="panel w-[218px] pointer-events-auto">
+    <div className="panel pointer-events-auto w-full sm:w-[218px]">
       <div className="panel-header">
         <span className="panel-title">
           {isRisk ? t('legend.liveRisk') : t('legend.susceptibility')}

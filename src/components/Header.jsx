@@ -2,11 +2,27 @@ import { useTranslation } from 'react-i18next'
 import { LANGUAGES, setLanguage } from '../i18n'
 
 /**
- * Fixed top bar: identity, map-layer switch, connectivity, language,
- * methodology. Everything global lives here so the map keeps its edges free.
+ * Fixed top bar: identity, the view switch, connectivity, language, help.
+ * Everything global lives here so the map keeps its edges free.
+ *
+ * The view switch is the most important control on the page, because it is the
+ * one that decides whether a visitor sees words or instruments. Controls that
+ * only mean something inside the operator dashboard - the map-layer switch,
+ * the methodology modal - are hidden in simple mode rather than disabled: a
+ * greyed-out control someone cannot use is still clutter they have to read.
  */
-export default function Header({ colorMode, onColorMode, online, onMethodology, search = null }) {
+export default function Header({
+  colorMode,
+  onColorMode,
+  online,
+  onMethodology,
+  mode = 'detailed',
+  onMode = null,
+  onHelp = null,
+  search = null,
+}) {
   const { t, i18n } = useTranslation()
+  const detailed = mode === 'detailed'
 
   return (
     <header className="relative z-30 shrink-0 border-b border-line bg-ink-900/95 backdrop-blur">
@@ -30,9 +46,40 @@ export default function Header({ colorMode, onColorMode, online, onMethodology, 
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {/* map layer switch */}
+        {/* view switch: plain language, or the full dashboard */}
+        {onMode && (
+          <div
+            className="flex items-center rounded border border-line bg-ink-700 p-0.5"
+            role="group"
+            aria-label={t('header.viewLabel')}
+          >
+            {[
+              { id: 'simple', label: t('header.viewSimple'), title: t('header.viewSimpleTitle') },
+              { id: 'detailed', label: t('header.viewDetailed'), title: t('header.viewDetailedTitle') },
+            ].map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => onMode(v.id)}
+                aria-pressed={mode === v.id}
+                title={v.title}
+                className={`rounded-[3px] px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                  mode === v.id
+                    ? 'bg-sky-900/80 text-sky-100 shadow-inner'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* map layer switch - an operator control, so detailed mode only */}
         <div
-          className="flex items-center rounded border border-line bg-ink-700 p-0.5"
+          className={`items-center rounded border border-line bg-ink-700 p-0.5 ${
+            detailed ? 'hidden sm:flex' : 'hidden'
+          }`}
           role="group"
           aria-label={t('header.modeLabel')}
         >
@@ -99,20 +146,41 @@ export default function Header({ colorMode, onColorMode, online, onMethodology, 
           ))}
         </div>
 
-        <button type="button" className="btn" onClick={onMethodology}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 16v-4M12 8h.01" strokeLinecap="round" />
-          </svg>
-          <span className="hidden lg:inline">{t('header.methodology')}</span>
-        </button>
+        {/* help reopens the welcome cards; always available, because the one
+            person who needs it most is the one who dismissed it too fast */}
+        {onHelp && (
+          <button
+            type="button"
+            className="btn !px-2"
+            onClick={onHelp}
+            title={t('header.help')}
+            aria-label={t('header.help')}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M9.6 9.2a2.5 2.5 0 013.9-1.2c1.4 1 .9 2.6-.4 3.3-.7.4-1.1.9-1.1 1.7" />
+              <path d="M12 17h.01" />
+            </svg>
+          </button>
+        )}
+
+        {detailed && (
+          <button type="button" className="btn" onClick={onMethodology}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 16v-4M12 8h.01" strokeLinecap="round" />
+            </svg>
+            <span className="hidden lg:inline">{t('header.methodology')}</span>
+          </button>
+        )}
         </div>
       </div>
 
       {/* Phones do not get the left control column, and searching is the main
           thing someone does on one - so the bar is persistent here, not a
-          secondary control hidden behind a menu. */}
-      {search && (
+          secondary control hidden behind a menu. Simple mode carries its own
+          search at the top of the sheet, so this would be a second one. */}
+      {search && detailed && (
         <div className="border-t border-line px-3 py-2 lg:hidden">{search}</div>
       )}
     </header>

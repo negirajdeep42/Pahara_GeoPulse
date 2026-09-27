@@ -46,7 +46,7 @@ export default function SensorPanel({ trigger }) {
       title={t('sensor.title')}
       tone="amber"
       alarm={breached}
-      className="w-[288px]"
+      className="w-full sm:w-[288px]"
       badge={
         <span className="chip border-amber-800 bg-amber-950/70 text-amber-300">SIM</span>
       }

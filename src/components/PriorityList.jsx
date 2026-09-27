@@ -18,7 +18,7 @@ export default function PriorityList({ cells, selectedCellId, onSelect }) {
   return (
     <Panel
       title={t('priority.title')}
-      className="w-[288px]"
+      className="w-full sm:w-[288px]"
       badge={
         <span className="tabular text-[10px] text-muted">{t('priority.subtitle')}</span>
       }

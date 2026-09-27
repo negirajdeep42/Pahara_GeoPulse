@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Panel from './Panel'
-import { fetchRainfall } from '../lib/openMeteo'
+import { LEAD_HOURS, fetchRainfall, parseHour } from '../lib/openMeteo'
 import {
   RAIN24_MAX,
   RAIN7D_MAX,
@@ -17,6 +17,11 @@ import {
  * recolours from it with no source reload. Fetching is spatial: rainfall comes
  * from a coarse 0.5 degree lattice covering the eight states, batched into a
  * couple of calls, and each risk cell reads the node it sits in.
+ *
+ * A live fetch also carries forecast lead times. The selector below picks
+ * which one the whole dashboard is showing - the map, the priority list, the
+ * alerts and the inspector all follow it. It is inert against slider
+ * scenarios, which have no clock to be ahead of.
  */
 export default function RainfallPanel({
   rain24h,
@@ -26,6 +31,10 @@ export default function RainfallPanel({
   onFetchLive = null,
   nodeCount = 0,
   progress = null,
+  lead = 0,
+  onLead = null,
+  leadWindow = null,
+  leadTruncated = false,
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
@@ -59,7 +68,7 @@ export default function RainfallPanel({
   return (
     <Panel
       title={t('rain.title')}
-      className="w-[288px]"
+      className="w-full sm:w-[288px]"
       badge={
         <span
           className={`chip ${
@@ -75,6 +84,51 @@ export default function RainfallPanel({
         </span>
       }
     >
+      {onLead && (
+        <div className="mb-3">
+          <div className="mb-1.5 flex items-baseline justify-between">
+            <span className="label mb-0">{t('rain.lead')}</span>
+            {isLive && leadWindow && (
+              <span className="tabular text-[9px] text-slate-500">
+                {t('rain.leadWindow', { time: formatWindow(leadWindow) })}
+              </span>
+            )}
+          </div>
+          <div
+            role="radiogroup"
+            aria-label={t('rain.lead')}
+            className="grid grid-cols-4 gap-1 rounded border border-line bg-ink-900/70 p-1"
+          >
+            {LEAD_HOURS.map((h) => (
+              <button
+                key={h}
+                type="button"
+                role="radio"
+                aria-checked={lead === h}
+                disabled={!isLive}
+                onClick={() => onLead(h)}
+                className={`tabular rounded px-1 py-1 text-[10px] font-semibold transition-colors ${
+                  lead === h
+                    ? 'bg-sky-900/80 text-sky-200'
+                    : 'text-slate-500 hover:text-slate-300 disabled:hover:text-slate-500'
+                } disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                {h === 0 ? t('rain.leadNow') : `+${h}h`}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[9px] leading-relaxed text-slate-600">
+            {!isLive
+              ? t('rain.leadNeedsLive')
+              : leadTruncated
+                ? t('rain.leadTruncated')
+                : lead === 0
+                  ? t('rain.leadObserved')
+                  : t('rain.leadForecast', { hours: lead })}
+          </p>
+        </div>
+      )}
+
       <Slider
         label={t('rain.rain24h')}
         value={rain24h}
@@ -205,4 +259,18 @@ function Component({ label, weight, value }) {
       </span>
     </div>
   )
+}
+
+/**
+ * `2026-09-05T14:00` -> `Fri 14:00`. The API returns GMT, and the caption is
+ * read next to a distance in kilometres by someone deciding whether to move a
+ * village, so the day name matters more than the date.
+ */
+function formatWindow(stamp) {
+  const ms = parseHour(stamp)
+  if (!Number.isFinite(ms)) return String(stamp)
+  const d = new Date(ms)
+  const day = d.toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' })
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  return `${day} ${hh}:00 GMT`
 }

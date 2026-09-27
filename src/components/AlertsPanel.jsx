@@ -14,7 +14,7 @@ import {
  * Live count of zones needing action, and the one button that leaves the
  * browser. Everything it sends is derived from what is on screen.
  */
-export default function AlertsPanel({ cells, trigger, rain, onToast, log, onLogged }) {
+export default function AlertsPanel({ cells, trigger, rain, lead = 0, onToast, log, onLogged }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const abortRef = useRef(null)
@@ -43,6 +43,7 @@ export default function AlertsPanel({ cells, trigger, rain, onToast, log, onLogg
       rain7d: rain.rain7d,
       trigger,
       source: rain.source,
+      lead,
       timestamp,
     })
 
@@ -77,7 +78,7 @@ export default function AlertsPanel({ cells, trigger, rain, onToast, log, onLogg
   return (
     <Panel
       title={t('alerts.title')}
-      className="w-[300px]"
+      className="w-full sm:w-[300px]"
       badge={
         <span
           className="rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"

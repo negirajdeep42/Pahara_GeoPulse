@@ -13,12 +13,23 @@ import SensorPanel from './components/SensorPanel'
 import MethodologyModal from './components/MethodologyModal'
 import PlaceSearch from './components/PlaceSearch'
 import PlaceResultCard from './components/PlaceResultCard'
+import SimpleView from './components/SimpleView'
+import WelcomeModal from './components/WelcomeModal'
 import { useRiskGrid } from './hooks/useRiskGrid'
+import { WIDE_QUERY, useMediaQuery } from './hooks/useMediaQuery'
 import { usePlaces } from './hooks/usePlaces'
 import { pushRecent, resolvePlace } from './lib/placeSearch'
 import { computeTrigger } from './lib/riskEngine'
-import { buildRainfallNodes, fetchRainfallGrid } from './lib/openMeteo'
-import { meanTrigger, peakRain, scoreCells } from './lib/spatialRisk'
+import {
+  buildRainfallNodes,
+  fetchRainfallGrid,
+  fieldAtLead,
+  leadTruncated,
+  leadWindowEnd,
+  peakField,
+} from './lib/openMeteo'
+import { meanTrigger, scoreCells } from './lib/spatialRisk'
+import { initialMode, markWelcomed, persistMode, shouldWelcome } from './lib/uiMode'
 
 // A modest wet-season scenario so the live-risk layer has structure the moment
 // it is opened. Clearly badged SIMULATED until real figures are fetched.
@@ -32,11 +43,18 @@ export default function App() {
   const { status: placesStatus, places } = usePlaces()
 
   const [colorMode, setColorMode] = useState('susceptibility')
+  // Which face of PAHARA is on screen. Simple is the default for a first-time
+  // visitor; a returning one gets whatever they last chose. See lib/uiMode.js.
+  const [mode, setMode] = useState(initialMode)
+  const [welcomeOpen, setWelcomeOpen] = useState(shouldWelcome)
   // `rain` is the uniform what-if scenario driven by the sliders. `rainField`
   // is the live 0.5 deg lattice; when it is set it takes precedence per cell.
   const [rain, setRain] = useState(DEFAULT_RAIN)
   const [rainField, setRainField] = useState(null)
   const [rainProgress, setRainProgress] = useState(null)
+  // Forecast lead time in hours: 0 is now, the rest reach into the forecast.
+  // Only meaningful against a live field - a slider scenario has no clock.
+  const [lead, setLead] = useState(0)
   const [online, setOnline] = useState(navigator.onLine)
   const [selected, setSelected] = useState(null)
   const [toasts, setToasts] = useState([])
@@ -47,16 +65,25 @@ export default function App() {
   const [placeResult, setPlaceResult] = useState(null)
   const mapRef = useRef(null)
   const deepLinkDone = useRef(false)
+  const simple = mode === 'simple'
+  // The operator dashboard is four corners of panels on a desktop and one
+  // scrolling sheet on a phone. No container can be both, so the layout is
+  // picked here - see hooks/useMediaQuery.js for why not in CSS.
+  const wide = useMediaQuery(WIDE_QUERY)
 
   // One rainfall node per 0.5 degrees of the modelled area - roughly 150 for
   // the eight states, fetched in two batched calls. Rainfall is never fetched
   // per risk cell; each cell reads the node it sits in.
   const rainNodes = useMemo(() => buildRainfallNodes(cells), [cells])
 
+  // The live field carries every lead time at once; the map only ever shows
+  // one. Everything downstream sees the familiar { rain24h, rain7d } shape.
+  const activeField = useMemo(() => fieldAtLead(rainField, lead), [rainField, lead])
+
   // Every cell scored against whichever rainfall it should see.
   const scored = useMemo(
-    () => scoreCells(cells, rainField, rain),
-    [cells, rainField, rain],
+    () => scoreCells(cells, activeField, rain),
+    [cells, activeField, rain],
   )
 
   const scoredById = useMemo(() => {
@@ -69,21 +96,37 @@ export default function App() {
   // mode this stays null and MapLibre recolours from the scalar below, so
   // dragging a slider never walks thousands of features.
   const spatialRisk = useMemo(() => {
-    if (!rainField) return null
+    if (!activeField) return null
     const m = new Map()
     for (const c of scored) m.set(c.cell_id, c.risk)
     return m
-  }, [scored, rainField])
+  }, [scored, activeField])
 
   // A single regional figure, still needed by the legend, the sensor node and
   // the alert message.
   const trigger = useMemo(
     () =>
-      rainField && scored.length
+      activeField && scored.length
         ? meanTrigger(scored)
         : computeTrigger(rain.rain24h, rain.rain7d),
-    [rainField, scored, rain.rain24h, rain.rain7d],
+    [activeField, scored, rain.rain24h, rain.rain7d],
   )
+
+  // What the selected lead means on the clock, for the panel's caption.
+  const leadWindow = useMemo(() => leadWindowEnd(rainField, lead), [rainField, lead])
+  const leadShort = useMemo(() => leadTruncated(rainField, lead), [rainField, lead])
+
+  // The sliders mirror the wettest node at the selected lead, so switching to
+  // +48 h moves them to what the forecast says the worst valley will have had.
+  useEffect(() => {
+    if (!activeField || activeField.size === 0) return
+    const peak = peakField(activeField)
+    setRain((prev) =>
+      prev.source === 'live' && prev.rain24h === peak.rain24h && prev.rain7d === peak.rain7d
+        ? prev
+        : { ...peak, source: 'live' },
+    )
+  }, [activeField])
 
   useEffect(() => {
     const up = () => setOnline(true)
@@ -100,15 +143,55 @@ export default function App() {
     mapRef.current = map
   }, [])
 
+  const handleMode = useCallback((next) => {
+    setMode(next)
+    persistMode(next)
+    // The map is the same size in neither layout - simple mode gives it the
+    // top third of a phone, detailed mode gives it everything. MapLibre only
+    // learns its container changed if it is told.
+    requestAnimationFrame(() => mapRef.current?.resize())
+  }, [])
+
+  const closeWelcome = useCallback(() => {
+    setWelcomeOpen(false)
+    markWelcomed()
+  }, [])
+
   // From a map click: MapLibre hands back the raw feature properties, which
   // carry no rainfall. Swap in the scored cell so the drawer shows the same
   // numbers the map was painted with.
+  //
+  // In simple mode there is no drawer to open, and the sheet promises "tap the
+  // map to check anywhere else" - so a tap has to produce the same answer a
+  // search does. It is routed through `resolvePlace` rather than assembled by
+  // hand, so the nearest-higher-risk note and the three verdicts behave
+  // identically however the place was chosen.
   const handleSelectCell = useCallback(
     (props) => {
-      if (!props) return setSelected(null)
-      setSelected(scoredById.get(props.cell_id) ?? props)
+      if (!props) {
+        setSelected(null)
+        if (simple) setPlaceResult(null)
+        return
+      }
+      const cell = scoredById.get(props.cell_id) ?? props
+      setSelected(cell)
+      if (simple) {
+        setPlaceResult(
+          resolvePlace(
+            {
+              name: cell.nearest_village || cell.cell_id,
+              lat: Number(cell.lat),
+              lon: Number(cell.lon),
+              district: cell.district ?? null,
+              state: cell.state ?? null,
+              population: cell.population ?? null,
+            },
+            scored,
+          ),
+        )
+      }
     },
-    [scoredById],
+    [scoredById, simple, scored],
   )
 
   // From the priority list: centre the map, then open the same drawer.
@@ -181,8 +264,12 @@ export default function App() {
   const handleRain = useCallback((rain24h, rain7d, source) => {
     setRain({ rain24h, rain7d, source })
     // Moving a slider is a what-if over the whole region, so the live spatial
-    // field has to give way or the map would ignore the operator.
-    if (source === 'sim') setRainField(null)
+    // field has to give way or the map would ignore the operator. A scenario
+    // has no clock, so the lead goes back to now with it.
+    if (source === 'sim') {
+      setRainField(null)
+      setLead(0)
+    }
   }, [])
 
   // Live rainfall for the whole Northeast, in batched calls.
@@ -195,16 +282,14 @@ export default function App() {
           onProgress: (done, total) => setRainProgress({ done, total }),
         })
         setRainField(res.byKey)
-        // Show the wettest node on the sliders: a regional mean would read as
-        // calm while one valley is being hit.
-        const peak = peakRain(scoreCells(cells, res.byKey, rain))
-        setRain({ ...peak, source: 'live' })
+        // The sliders follow from the field via the effect above, which also
+        // keeps them right when the operator changes lead time afterwards.
         return res
       } finally {
         setRainProgress(null)
       }
     },
-    [rainNodes, cells, rain],
+    [rainNodes],
   )
 
   const pushToast = useCallback((toast) => {
@@ -228,6 +313,61 @@ export default function App() {
     [pushToast, t],
   )
 
+  /**
+   * Every operator panel, built once. The two layouts below place these same
+   * elements differently; neither builds its own, so nothing is ever mounted
+   * twice and no panel's in-flight fetch has a second copy of itself.
+   */
+  const panels = simple
+    ? null
+    : {
+        search:
+          placesStatus === 'ready' ? (
+            <PlaceSearch
+              places={places}
+              rainField={activeField}
+              uniformRain={rain}
+              onSelect={handleSelectPlace}
+              compact={!wide}
+            />
+          ) : null,
+        rain: (
+          <RainfallPanel
+            rain24h={rain.rain24h}
+            rain7d={rain.rain7d}
+            source={rain.source}
+            onChange={handleRain}
+            onFetchLive={handleFetchLive}
+            nodeCount={rainNodes.length}
+            progress={rainProgress}
+            lead={lead}
+            onLead={setLead}
+            leadWindow={leadWindow}
+            leadTruncated={leadShort}
+          />
+        ),
+        priority: (
+          <PriorityList
+            cells={scored}
+            selectedCellId={selected?.cell_id ?? null}
+            onSelect={handleSelectFromList}
+          />
+        ),
+        sensor: <SensorPanel trigger={trigger} />,
+        alerts: (
+          <AlertsPanel
+            cells={scored}
+            trigger={trigger}
+            rain={rain}
+            lead={lead}
+            log={alertLog}
+            onToast={pushToast}
+            onLogged={pushAlertLog}
+          />
+        ),
+        legend: <Legend colorMode={colorMode} trigger={trigger} />,
+      }
+
   const mapCentre = () => {
     const c = mapRef.current?.getCenter()
     return c ? { lat: c.lat, lon: c.lng } : { lat: 25.4, lon: 93.0 }
@@ -240,11 +380,14 @@ export default function App() {
         onColorMode={setColorMode}
         online={online}
         onMethodology={() => setMethodOpen(true)}
+        mode={mode}
+        onMode={handleMode}
+        onHelp={() => setWelcomeOpen(true)}
         search={
           placesStatus === 'ready' ? (
             <PlaceSearch
               places={places}
-              rainField={rainField}
+              rainField={activeField}
               uniformRain={rain}
               onSelect={handleSelectPlace}
               compact
@@ -269,43 +412,99 @@ export default function App() {
           onMapReady={handleMapReady}
         />
 
-        {/* left control column - leaves room for the sensor panel below */}
-        <div className="scroll-thin pointer-events-none absolute left-3 top-3 z-20 flex max-h-[calc(100%-15rem)] flex-col gap-2 overflow-y-auto pr-1">
-          {/* the header carries this on phones instead - see Header.jsx */}
-          {placesStatus === 'ready' && (
-            <div className="pointer-events-auto hidden lg:block">
-              <PlaceSearch
-                places={places}
-                rainField={rainField}
-                uniformRain={rain}
-                onSelect={handleSelectPlace}
-              />
+        {/* Simple mode: one column of plain language over the map. */}
+        {simple && (
+          <SimpleView
+            places={places}
+            placesReady={placesStatus === 'ready'}
+            activeField={activeField}
+            rain={rain}
+            result={placeResult}
+            onSelectPlace={handleSelectPlace}
+            onReport={() => setReportOpen(true)}
+            onDetails={() => handleMode('detailed')}
+          />
+        )}
+
+        {/* ---------------------------------------------- operator dashboard */}
+        {!simple && wide && (
+          <>
+            {/* left control column - leaves room for the sensor panel below */}
+            <div className="scroll-thin pointer-events-none absolute left-3 top-3 z-20 flex max-h-[calc(100%-15rem)] flex-col gap-2 overflow-y-auto pr-1">
+              {panels.search && (
+                <div className="pointer-events-auto hidden lg:block">{panels.search}</div>
+              )}
+              {panels.rain}
+              {panels.priority}
             </div>
-          )}
-          <RainfallPanel
-            rain24h={rain.rain24h}
-            rain7d={rain.rain7d}
-            source={rain.source}
-            onChange={handleRain}
-            onFetchLive={handleFetchLive}
-            nodeCount={rainNodes.length}
-            progress={rainProgress}
-          />
-          <PriorityList
-            cells={scored}
-            selectedCellId={selected?.cell_id ?? null}
-            onSelect={handleSelectFromList}
-          />
-        </div>
 
-        {/* bottom-left sensor node */}
-        <div className="pointer-events-none absolute bottom-4 left-3 z-20">
-          <SensorPanel trigger={trigger} />
-        </div>
+            {/* bottom-left sensor node */}
+            <div className="pointer-events-none absolute bottom-4 left-3 z-20">{panels.sensor}</div>
 
-        {/* right drawer: the search result card sits above the inspector */}
-        {(selected || placeResult) && (
-          <div className="pointer-events-none absolute right-0 top-0 z-30 flex h-full flex-col items-end">
+            {/* top-right alerts */}
+            <div
+              className="pointer-events-none absolute right-3 top-3 z-20 flex flex-col items-end gap-2 transition-transform duration-200"
+              style={{ transform: selected || placeResult ? 'translateX(-340px)' : 'none' }}
+            >
+              {panels.alerts}
+            </div>
+
+            {/* bottom-right legend, above the maplibre controls */}
+            <div
+              className="pointer-events-none absolute bottom-4 right-3 z-20 flex flex-col items-end gap-2 transition-transform duration-200"
+              style={{ transform: selected || placeResult ? 'translateX(-340px)' : 'none' }}
+            >
+              {panels.legend}
+            </div>
+
+            {/* citizen reporting */}
+            <button
+              type="button"
+              onClick={() => setReportOpen(true)}
+              className="btn btn-primary absolute bottom-5 left-1/2 z-30 -translate-x-1/2 !rounded-full !px-4 !py-3 shadow-2xl shadow-black/60"
+            >
+              <ReportGlyph />
+              {t('report.fab')}
+            </button>
+          </>
+        )}
+
+        {/*
+          The same dashboard on a phone. Four floating corners become one
+          scrolling sheet over the bottom two-thirds, so the panels stack
+          instead of covering each other, and the map keeps the top third.
+          Ordered by what an operator reaches for first, which is not the
+          desktop reading order: alerts, then rain, then the priority list.
+        */}
+        {!simple && !wide && (
+          <div className="pointer-events-auto absolute inset-x-0 bottom-0 top-[34%] z-20 flex flex-col rounded-t-2xl border-t border-line bg-ink-900/97 shadow-2xl shadow-black/70 backdrop-blur">
+            <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-ink-500" />
+            <div className="scroll-thin min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {panels.search}
+              {panels.alerts}
+              {panels.rain}
+              {panels.priority}
+              {panels.sensor}
+              {panels.legend}
+            </div>
+            <div className="shrink-0 border-t border-line p-3">
+              <button
+                type="button"
+                onClick={() => setReportOpen(true)}
+                className="btn btn-primary w-full !py-2.5"
+              >
+                <ReportGlyph />
+                {t('report.fab')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* right drawer: the search result card sits above the inspector. On a
+            phone it is a full-width sheet instead, because a 340px drawer on a
+            375px screen is a modal that only pretends not to be one. */}
+        {!simple && (selected || placeResult) && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-40 flex h-full w-full flex-col items-end sm:w-auto">
             {placeResult && (
               <PlaceResultCard
                 result={placeResult}
@@ -315,7 +514,7 @@ export default function App() {
               />
             )}
             {selected && (
-              <div className="min-h-0 flex-1">
+              <div className="min-h-0 w-full flex-1 sm:w-auto">
                 <CellInspector
                   cell={selected}
                   trigger={trigger}
@@ -330,42 +529,6 @@ export default function App() {
           </div>
         )}
 
-        {/* top-right alerts */}
-        <div
-          className="pointer-events-none absolute right-3 top-3 z-20 flex flex-col items-end gap-2 transition-transform duration-200"
-          style={{ transform: selected || placeResult ? 'translateX(-340px)' : 'none' }}
-        >
-          <AlertsPanel
-            cells={scored}
-            trigger={trigger}
-            rain={rain}
-            log={alertLog}
-            onToast={pushToast}
-            onLogged={pushAlertLog}
-          />
-        </div>
-
-        {/* bottom-right legend, above the maplibre controls */}
-        <div
-          className="pointer-events-none absolute bottom-4 right-3 z-20 flex flex-col items-end gap-2 transition-transform duration-200"
-          style={{ transform: selected || placeResult ? 'translateX(-340px)' : 'none' }}
-        >
-          <Legend colorMode={colorMode} trigger={trigger} />
-        </div>
-
-        {/* citizen reporting */}
-        <button
-          type="button"
-          onClick={() => setReportOpen(true)}
-          className="btn btn-primary absolute bottom-5 left-1/2 z-30 -translate-x-1/2 !rounded-full !px-4 !py-3 shadow-2xl shadow-black/60"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 9v4M12 17h.01" />
-            <path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />
-          </svg>
-          {t('report.fab')}
-        </button>
-
         <ReportModal
           open={reportOpen}
           onClose={() => setReportOpen(false)}
@@ -379,6 +542,8 @@ export default function App() {
           cellCount={cells.length}
           onClose={() => setMethodOpen(false)}
         />
+
+        <WelcomeModal open={welcomeOpen} onClose={closeWelcome} />
 
         <Toasts toasts={toasts} onDismiss={dismissToast} />
 
@@ -441,6 +606,16 @@ function LoadingOverlay({ label, progress }) {
         )}
       </div>
     </div>
+  )
+}
+
+/** The hazard triangle on the report control, in both dashboard layouts. */
+function ReportGlyph() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 9v4M12 17h.01" />
+      <path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />
+    </svg>
   )
 }
 

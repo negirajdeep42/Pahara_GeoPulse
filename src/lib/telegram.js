@@ -30,6 +30,7 @@ export function buildAlertMessage({
   rain7d,
   trigger,
   source,
+  lead = 0,
   timestamp = new Date(),
 }) {
   const lines = []
@@ -37,6 +38,11 @@ export function buildAlertMessage({
   lines.push('District: Dima Hasao, Assam')
   lines.push('')
   lines.push(`ALERT LEVEL: ${level.toUpperCase()}`)
+  // The lead time is not decoration. An Evacuate derived from a +72 h forecast
+  // read as though it described the present would move people three days
+  // early, and the next one would be ignored. It goes on the line under the
+  // level, where it cannot be skimmed past.
+  lines.push(`VALID FOR: ${leadLabel(lead, source, timestamp)}`)
   lines.push(`Zones at Warning or Evacuate: ${affected}`)
   lines.push(`  Evacuate ${counts.Evacuate} · Warning ${counts.Warning} · Watch ${counts.Watch}`)
   lines.push('')
@@ -56,7 +62,7 @@ export function buildAlertMessage({
     lines.push('')
   }
 
-  lines.push('RAINFALL')
+  lines.push(Number(lead) > 0 ? `RAINFALL (totals at +${Number(lead)} h)` : 'RAINFALL')
   lines.push(`  24-hour: ${Number(rain24h).toFixed(1)} mm`)
   lines.push(`  7-day antecedent: ${Number(rain7d).toFixed(1)} mm`)
   lines.push(`  Source: ${source === 'live' ? 'Open-Meteo (live)' : 'operator simulation'}`)
@@ -95,6 +101,18 @@ export async function sendTelegramAlert(text, { signal } = {}) {
     throw new Error(payload?.description || `Telegram returned HTTP ${res.status}`)
   }
   return payload
+}
+
+/**
+ * What window this alert describes. A slider scenario is neither now nor a
+ * forecast and must not be labelled as either.
+ */
+function leadLabel(lead, source, issuedAt) {
+  const h = Number(lead) || 0
+  if (source !== 'live') return 'operator scenario — not a forecast'
+  if (h <= 0) return 'conditions now'
+  const at = new Date(issuedAt.getTime() + h * 3600e3)
+  return `+${h} h — forecast conditions at ${formatStamp(at)}`
 }
 
 function fmt(v) {

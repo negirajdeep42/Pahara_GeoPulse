@@ -1,10 +1,22 @@
 // Open-Meteo forecast API. Free, no key, no account.
 //
-// The series returned by past_days=7&forecast_days=1 runs from seven days ago
-// to the end of tomorrow. We sum the LAST 24 and LAST 168 hourly values, so
-// the figures deliberately include the coming forecast day - for an early
-// warning system, rain that is about to fall matters as much as rain that
-// just did.
+// The series returned by past_days=7&forecast_days=4 runs from seven days ago
+// to the end of the third forecast day. We locate the CURRENT hour inside it
+// and then sum backwards from four different points:
+//
+//   lead 0    the 24 h and 168 h ending now          - observed
+//   lead +24  the 24 h and 168 h ending 24 h from now - part forecast
+//   lead +48  ... and so on
+//   lead +72
+//
+// That is the difference between a monitor and a warning system. A hillside
+// that will be at Evacuate on Thursday is worth knowing about on Tuesday; by
+// the time the observed window says so, the slope already knows.
+//
+// past_days=7 + forecast_days=4 is exactly the span +72 h needs: the current
+// hour sits at index 168..191, and 191 + 72 = 263, the last index of an
+// 11-day hourly series. Shortening the forecast window truncates the longest
+// lead - see `truncated` on each lead.
 //
 // Two shapes of request live here:
 //
@@ -17,7 +29,13 @@
 // two batched calls, and every risk cell reads from the node containing it.
 
 const FORECAST_BASE = 'https://api.open-meteo.com/v1/forecast'
-const HOURLY_QUERY = 'hourly=precipitation&past_days=7&forecast_days=1'
+const HOURLY_QUERY = 'hourly=precipitation&past_days=7&forecast_days=4'
+
+/**
+ * Forecast lead times, in hours. 0 is "now" and is pure observation; the rest
+ * reach into the forecast. Every rainfall payload carries a window for each.
+ */
+export const LEAD_HOURS = [0, 24, 48, 72]
 
 export const OPEN_METEO_URL =
   `${FORECAST_BASE}?latitude=25.4&longitude=93.0&${HOURLY_QUERY}`
@@ -41,7 +59,7 @@ export async function fetchRainfall({ signal } = {}) {
   }
 
   return {
-    ...summarise(series),
+    ...summariseSeries(data),
     hours: series.length,
     windowEnd: lastTime(data),
     fetchedAt: new Date().toISOString(),
@@ -122,7 +140,7 @@ export async function fetchRainfallGrid(nodes, { signal, batchSize = RAIN_BATCH,
     list.forEach((loc, k) => {
       const series = loc?.hourly?.precipitation
       if (!Array.isArray(series) || series.length === 0) return
-      byKey.set(batch[k].key, summarise(series))
+      byKey.set(batch[k].key, summariseSeries(loc))
       windowEnd = windowEnd || lastTime(loc)
     })
 
@@ -141,12 +159,157 @@ export async function fetchRainfallGrid(nodes, { signal, batchSize = RAIN_BATCH,
   }
 }
 
+// -------------------------------------------------------------- lead times
+
+/**
+ * Project a lead-aware rainfall field onto one lead time.
+ *
+ * `fetchRainfallGrid` returns a node -> { rain24h, rain7d, leads } map. Every
+ * consumer downstream of here - scoreCells, the place search, the inspector -
+ * only ever wants one lead at a time, and wants it in the plain
+ * { rain24h, rain7d } shape they already understand. This is the one place
+ * that knows a lead exists.
+ *
+ * An unknown lead, or a node fetched before leads existed, falls back to the
+ * node's own top-level figures, which are the observed ones.
+ */
+export function fieldAtLead(field, lead = 0) {
+  if (!field) return null
+  const out = new Map()
+  for (const [key, node] of field) {
+    const hit = node?.leads?.[lead]
+    out.set(key, hit ? { rain24h: hit.rain24h, rain7d: hit.rain7d } : node)
+  }
+  return out
+}
+
+/**
+ * The wettest node in a projected field.
+ *
+ * The sliders show this rather than a regional mean: a mean reads as calm
+ * while one valley is being hit, and the valley is the whole point.
+ */
+export function peakField(field) {
+  let rain24h = 0
+  let rain7d = 0
+  if (!field) return { rain24h, rain7d }
+  for (const node of field.values()) {
+    if (Number(node?.rain24h) > rain24h) rain24h = Number(node.rain24h)
+    if (Number(node?.rain7d) > rain7d) rain7d = Number(node.rain7d)
+  }
+  return { rain24h, rain7d }
+}
+
+/** When the window for a lead ends, as returned by the API, or null. */
+export function leadWindowEnd(field, lead = 0) {
+  if (!field) return null
+  for (const node of field.values()) {
+    const at = node?.leads?.[lead]?.at
+    if (at) return at
+  }
+  return null
+}
+
+/** True when the API did not reach far enough ahead to cover this lead. */
+export function leadTruncated(field, lead = 0) {
+  if (!field) return false
+  for (const node of field.values()) {
+    if (node?.leads?.[lead]) return Boolean(node.leads[lead].truncated)
+  }
+  return false
+}
+
 // ------------------------------------------------------------------ shared
 
-function summarise(series) {
-  const sumLast = (n) =>
-    series.slice(-n).reduce((acc, v) => acc + (Number.isFinite(Number(v)) ? Number(v) : 0), 0)
-  return { rain24h: round1(sumLast(24)), rain7d: round1(sumLast(168)) }
+/**
+ * Hourly precipitation, summarised at every lead time.
+ *
+ * Returns the lead-0 figures at the top level - so every existing caller that
+ * reads `rain24h` / `rain7d` keeps working and keeps meaning "observed" - with
+ * the full set under `leads`.
+ *
+ * `at` is the clock, injectable so the windowing can be tested against a fixed
+ * series instead of against whatever hour the suite happens to run in.
+ */
+export function summariseSeries(payload, at = Date.now()) {
+  const series = payload?.hourly?.precipitation
+  const times = payload?.hourly?.time
+  const end = anchorIndex(times, series.length, at)
+
+  const leads = {}
+  for (const lead of LEAD_HOURS) {
+    const stop = end + lead
+    const clamped = Math.min(stop, series.length - 1)
+    leads[lead] = {
+      lead,
+      rain24h: round1(sumWindow(series, clamped, 24)),
+      rain7d: round1(sumWindow(series, clamped, 168)),
+      at: Array.isArray(times) ? (times[clamped] ?? null) : null,
+      // true when the API did not return far enough ahead to cover this lead,
+      // in which case the figures are those of the furthest hour it did return
+      truncated: stop > series.length - 1,
+    }
+  }
+
+  return { ...leads[0], leads }
+}
+
+/**
+ * Index of the hour the windows are measured from - the current hour.
+ *
+ * Open-Meteo timestamps look like `2026-09-03T14:00`, with no zone, in the
+ * timezone the request asked for. We ask for none, so they are GMT and can be
+ * read by appending seconds and a Z. If the timestamps are missing or
+ * unparseable we fall back to the end of the observed week, which is where
+ * past_days=7 puts it: index 167 is the last hour of yesterday.
+ */
+export function anchorIndex(times, length, at = Date.now()) {
+  const fallback = Math.min(Math.max(length - 1, 0), 167)
+  if (!Array.isArray(times) || times.length === 0) return fallback
+
+  let lo = 0
+  let hi = Math.min(times.length, length) - 1
+  let best = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const ms = parseHour(times[mid])
+    if (!Number.isFinite(ms)) return fallback
+    if (ms <= at) {
+      best = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return best < 0 ? fallback : best
+}
+
+/**
+ * `2026-09-03T14:00` -> epoch ms, read as GMT unless it carries a zone.
+ *
+ * The shape is checked before parsing rather than after. `Date.parse` in V8
+ * falls back to a legacy parser that accepts almost anything - `Date.parse
+ * ('nonsense:00Z')` is 1 Jan 2000, not NaN - so appending `:00Z` to an
+ * unrecognised string and trusting the result would silently anchor every
+ * window to the wrong hour instead of falling back.
+ */
+const HOUR_STAMP = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?([Zz]|[+-]\d{2}:?\d{2})?$/
+
+export function parseHour(stamp) {
+  if (typeof stamp !== 'string') return NaN
+  const m = HOUR_STAMP.exec(stamp.trim())
+  if (!m) return NaN
+  return Date.parse(m[2] ? stamp.trim() : `${m[1]}:00Z`)
+}
+
+/** Sum of `hours` values ending at `endIdx` inclusive. */
+function sumWindow(series, endIdx, hours) {
+  let total = 0
+  for (let i = Math.max(0, endIdx - hours + 1); i <= endIdx; i += 1) {
+    const n = Number(series[i])
+    if (Number.isFinite(n)) total += n
+  }
+  return total
 }
 
 function lastTime(payload) {

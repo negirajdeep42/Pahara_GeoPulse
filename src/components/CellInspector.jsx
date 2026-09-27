@@ -43,7 +43,7 @@ export default function CellInspector({
   const place = [cell.district, cell.state].filter(Boolean).join(', ')
 
   return (
-    <aside className="pointer-events-auto flex h-full w-[340px] animate-slide-in flex-col border-l border-line bg-ink-800/95 shadow-2xl shadow-black/70 backdrop-blur">
+    <aside className="pointer-events-auto flex h-full w-full animate-slide-in flex-col border-l border-line bg-ink-800/95 shadow-2xl shadow-black/70 backdrop-blur sm:w-[340px]">
       {/* header */}
       <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
         <div className="min-w-0">

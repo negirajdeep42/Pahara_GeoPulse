@@ -24,7 +24,7 @@ export default function PlaceResultCard({
   const where = [point.district, point.state].filter(Boolean).join(', ')
 
   return (
-    <section className="panel pointer-events-auto w-[340px] shrink-0 border-b-0">
+    <section className="panel pointer-events-auto w-full shrink-0 border-b-0 sm:w-[340px]">
       <div className="panel-header">
         <div className="min-w-0">
           <span className="panel-title">{t('search.resultTitle')}</span>
